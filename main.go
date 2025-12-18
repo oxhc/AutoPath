@@ -42,34 +42,52 @@ func GetExeDir() (string, error) {
 	return exeDir, nil
 }
 
-// IsDirInPath 检查指定目录是否已存在于用户Path环境变量中
+// readUserPathFromReg 从注册表读取用户级Path环境变量
+// 返回值：path字符串（空字符串表示无该键值），错误
+func readUserPathFromReg() (string, error) {
+	if runtime.GOOS != "windows" {
+		return "", errors.New("仅支持Windows系统")
+	}
+
+	// 执行reg查询命令
+	cmd := exec.Command("reg", "query", "HKCU\\Environment", "/v", "Path")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// 检查是否是"找不到键值"的错误（退出码1，输出包含"找不到项目"）
+		exitErr, ok := err.(*exec.ExitError)
+		if ok && exitErr.ExitCode() == 1 && strings.Contains(strings.ToLower(string(output)), "找不到项目") {
+			return "", nil // 无Path键值，返回空字符串
+		}
+		return "", fmt.Errorf("查询注册表失败: %w, 输出: %s", err, string(output))
+	}
+
+	// 解析reg输出，兼容REG_SZ和REG_EXPAND_SZ类型
+	regOutput := string(output)
+	re := regexp.MustCompile(`Path\s+(REG_SZ|REG_EXPAND_SZ)\s+(.*)`)
+	matches := re.FindStringSubmatch(regOutput)
+	if len(matches) < 3 {
+		return "", nil // 解析失败，视为空Path
+	}
+	return strings.TrimSpace(matches[2]), nil
+}
+
+// IsDirInPath 检查指定目录是否已存在于用户Path环境变量中（从注册表读取）
 func IsDirInPath(targetDir string) (bool, error) {
 	if runtime.GOOS != "windows" {
 		return false, errors.New("仅支持Windows系统")
 	}
 
-	// 获取用户级Path环境变量
-	userPath := os.Getenv("PATH") // 优先读取当前进程的用户Path
+	// 从注册表读取原始用户Path
+	userPath, err := readUserPathFromReg()
+	if err != nil {
+		return false, fmt.Errorf("从注册表读取Path失败: %w", err)
+	}
 	if userPath == "" {
-		// 兜底：从注册表读取原始用户Path
-		regOut, err := exec.Command("reg", "query", "HKCU\\Environment", "/v", "Path").Output()
-		if err != nil {
-			// 注册表中无Path项（首次添加）
-			return false, nil
-		}
-		// 解析reg命令输出，提取Path值
-		regOutput := string(regOut)
-		re := regexp.MustCompile(`Path\s+REG_EXPAND_SZ\s+(.*)`)
-		matches := re.FindStringSubmatch(regOutput)
-		if len(matches) < 2 {
-			return false, nil
-		}
-		userPath = matches[1]
+		return false, nil // Path为空，目录肯定不存在
 	}
 
-	// 拆分Path为多个目录（Windows用;分隔，处理可能的空格）
+	// 拆分Path为多个目录（Windows用;分隔）
 	pathDirs := strings.Split(userPath, ";")
-	//fmt.Printf("userPath: %v\n ------------- \n ", userPath)
 	// 统一路径格式（转小写、替换/为\、清理路径）
 	targetDir = filepath.Clean(strings.ToLower(targetDir))
 
@@ -88,7 +106,7 @@ func IsDirInPath(targetDir string) (bool, error) {
 	return false, nil
 }
 
-// AddDirToUserPath 将目录添加到用户级Path环境变量（Windows）
+// AddDirToUserPath 将目录添加到用户级Path环境变量（完全基于注册表操作）
 func AddDirToUserPath(targetDir string) error {
 	if runtime.GOOS != "windows" {
 		return errors.New("仅支持Windows系统")
@@ -103,12 +121,21 @@ func AddDirToUserPath(targetDir string) error {
 		return nil // 已存在，无需添加
 	}
 
-	// 2. 获取当前用户Path
-	userPath := os.Getenv("PATH")
-	// 拼接新Path（末尾加;避免格式问题）
-	newPath := fmt.Sprintf("%s;%s", userPath, targetDir)
+	// 2. 从注册表读取当前Path
+	currentPath, err := readUserPathFromReg()
+	if err != nil {
+		return fmt.Errorf("读取当前Path失败: %w", err)
+	}
 
-	// 3. 写入注册表（用户级Environment）
+	// 3. 拼接新Path
+	var newPath string
+	if currentPath == "" {
+		newPath = targetDir // Path为空，直接设置为目标目录
+	} else {
+		newPath = fmt.Sprintf("%s;%s", currentPath, targetDir) // 追加到现有Path
+	}
+
+	// 4. 写入注册表（用户级Environment）
 	// reg add "HKCU\Environment" /v Path /t REG_EXPAND_SZ /d "新Path值" /f
 	cmd := exec.Command("reg", "add", "HKCU\\Environment", "/v", "Path", "/t", "REG_EXPAND_SZ", "/d", newPath, "/f")
 	output, err := cmd.CombinedOutput()
@@ -116,7 +143,7 @@ func AddDirToUserPath(targetDir string) error {
 		return fmt.Errorf("写入注册表失败: %w, 输出: %s", err, string(output))
 	}
 
-	// 4. 发送系统消息，让环境变量生效
+	// 5. 发送系统消息，让环境变量生效
 	err = sendEnvironmentChangeMessage()
 	if err != nil {
 		return fmt.Errorf("发送环境变量更新消息失败: %w", err)
