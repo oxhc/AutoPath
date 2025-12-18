@@ -28,9 +28,18 @@ func readUserPathFromReg() (string, error) {
 		}
 		return "", fmt.Errorf("查询注册表失败: %w, 输出: %s", err, string(output))
 	}
+	//fmt.Printf("out: %s", output)
+
+	// 解码GBK输出为UTF-8（解决中文乱码）
+	utf8Output, err := GbkToUtf8(output)
+	if err != nil {
+		return "", fmt.Errorf("解码reg输出失败: %w", err)
+	}
+
+	//fmt.Printf("utf8: %s", utf8Output)
 
 	// 解析reg输出，兼容REG_SZ和REG_EXPAND_SZ类型
-	regOutput := string(output)
+	regOutput := string(utf8Output)
 	re := regexp.MustCompile(`Path\s+(REG_SZ|REG_EXPAND_SZ)\s+(.*)`)
 	matches := re.FindStringSubmatch(regOutput)
 	if len(matches) < 3 {
@@ -53,6 +62,8 @@ func IsDirInPath(targetDir string) (bool, error) {
 	if userPath == "" {
 		return false, nil // Path为空，目录肯定不存在
 	}
+
+	//fmt.Printf("userPath: %s\n", userPath)
 
 	// 拆分Path为多个目录（Windows用;分隔）
 	pathDirs := strings.Split(userPath, ";")
