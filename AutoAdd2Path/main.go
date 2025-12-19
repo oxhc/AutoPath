@@ -1,17 +1,18 @@
 package main
 
 import (
+	"autoPath/utils"
 	"fmt"
 )
 
 func main() {
 	op()
-	PressEnterToContinue()
+	utils.PressEnterToContinue()
 }
 
 func op() {
 	// 1. 获取当前exe所在目录
-	exeDir, err := GetExeDir()
+	exeDir, err := utils.GetExeDir()
 	if err != nil {
 		fmt.Printf("获取exe目录失败: %v\n", err)
 		return
@@ -19,7 +20,7 @@ func op() {
 	fmt.Printf("当前目录: %s\n", exeDir)
 
 	// 2. 检查是否已在Path中
-	exists, err := IsDirInPath(exeDir)
+	exists, err := utils.IsDirInPath(exeDir)
 	if err != nil {
 		fmt.Printf("检查目录是否在Path中失败: %v\n", err)
 		return
@@ -30,7 +31,7 @@ func op() {
 	}
 
 	// 3. 添加到用户Path
-	err = AddDirToUserPath(exeDir)
+	err = utils.AddDirToUserPath(exeDir)
 	if err != nil {
 		fmt.Printf("添加目录到Path失败: %v\n", err)
 		return
