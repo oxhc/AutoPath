@@ -21,6 +21,7 @@ func findPythonInstallation() []string {
 		if _, err := os.Stat(basePath); os.IsNotExist(err) {
 			continue
 		}
+		fmt.Println("> 正在搜索Python安装：", basePath)
 		// 遍历基础路径下的子目录（处理Python版本号目录，如Python311）
 		err := filepath.Walk(basePath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
@@ -33,12 +34,14 @@ func findPythonInstallation() []string {
 					return filepath.SkipDir
 				}
 				pythonPaths[absPath] = struct{}{}
+				return filepath.SkipAll
 				//fmt.Printf("Found Python installation: %s\n", absPath)
 			}
 			return nil
 		})
 		if err != nil {
-			return nil
+			//fmt.Println("> 搜索Python安装失败: ", err)
+			continue
 		}
 	}
 
