@@ -69,6 +69,14 @@ func GetPathList() ([]string, error) {
 }
 
 func Where(names []string) []string {
+	return OptionWhere(names, true)
+}
+
+func WhereWithoutFileName(names []string) []string {
+	return OptionWhere(names, false)
+}
+
+func OptionWhere(names []string, withFileName bool) []string {
 	userPath, err := GetPathList()
 	if err != nil {
 		fmt.Println("获取用户级Path环境变量失败:", err)
@@ -88,7 +96,11 @@ func Where(names []string) []string {
 			exePath := filepath.Join(path, exeName)
 			if _, err := os.Stat(exePath); err == nil { // 文件存在
 				absPath, _ := filepath.Abs(exePath)
-				resPaths[absPath] = struct{}{}
+				if withFileName {
+					resPaths[absPath] = struct{}{}
+				} else {
+					resPaths[filepath.Dir(absPath)] = struct{}{}
+				}
 			}
 		}
 	}
@@ -115,7 +127,9 @@ func DeleteDirFromUserPath(targetDir string) error {
 		// 统一目录格式，避免因大小写、路径分隔符差异导致判断失误
 		cleanDir := filepath.Clean(strings.ToLower(dir))
 		// 过滤掉目标目录，保留其他目录
-		if cleanDir != targetDirClean {
+		if cleanDir == targetDirClean {
+			fmt.Printf("> 已删除: %s\n", dir)
+		} else {
 			newPathDirs = append(newPathDirs, dir)
 		}
 	}

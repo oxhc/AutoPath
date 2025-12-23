@@ -43,21 +43,14 @@ func findPythonInstallation() []string {
 	}
 
 	// 步骤2：从PATH环境变量中查找Python
-	pathEnv := os.Getenv("PATH")
-	pathList := strings.Split(pathEnv, ";") // Windows PATH用分号分隔
+	pathList := utils.Where([]string{"python.exe", "python3.exe"})
 	for _, path := range pathList {
 		path = strings.TrimSpace(path)
 		if path == "" {
 			continue
 		}
-		// 检查该路径下是否有python.exe/python3.exe
-		for _, exeName := range []string{"python.exe", "python3.exe"} {
-			exePath := filepath.Join(path, exeName)
-			if _, err := os.Stat(exePath); err == nil { // 文件存在
-				absPath, _ := filepath.Abs(exePath)
-				pythonPaths[absPath] = struct{}{}
-			}
-		}
+		absPath, _ := filepath.Abs(path)
+		pythonPaths[absPath] = struct{}{}
 	}
 
 	// 步骤3：将map转为切片返回
@@ -69,15 +62,31 @@ func findPythonInstallation() []string {
 }
 
 func clearPythonPaths() {
-	pythonPaths := utils.Where([]string{"python.exe", "python3.exe"})
+	pythonPaths := utils.WhereWithoutFileName([]string{"python.exe", "python3.exe", "pip.exe"})
 	if len(pythonPaths) == 0 {
 		return
 	}
 	for _, path := range pythonPaths {
+		fmt.Println("> 正在删除Python路径：", path)
 		err := utils.DeleteDirFromUserPath(path)
 		if err != nil {
 			fmt.Println("> 删除Python路径失败：", err)
 			return
+		}
+	}
+	pathList, err := utils.GetPathList()
+	if err != nil {
+		fmt.Println("> 获取Path列表失败：", err)
+		return
+	}
+	for _, path := range pathList {
+		if strings.Contains(path, "WindowsApps") {
+			fmt.Println("> 删除Path：", path)
+			err := utils.DeleteDirFromUserPath(path)
+			if err != nil {
+				fmt.Println("> 删除Path失败：", err)
+				return
+			}
 		}
 	}
 }
@@ -169,18 +178,14 @@ func op() {
 		fmt.Println("> 退出程序")
 		return
 	}
-	err := utils.DeleteDirFromUserPath(pythonDirPath)
-	if err != nil {
-		fmt.Println("> 删除Python路径失败：", err)
-		return
-	}
+	clearPythonPaths()
 	fmt.Println("> 删除完成")
 	option = utils.Confirm(`是否添加该Python版本到环境变量`)
 	if !option {
 		fmt.Println("> 退出程序")
 		return
 	}
-	err = utils.AddDirToUserPath(pythonDirPath)
+	err := utils.AddDirToUserPath(pythonDirPath)
 	if err != nil {
 		fmt.Println("> 添加Python路径失败：", err)
 	}
