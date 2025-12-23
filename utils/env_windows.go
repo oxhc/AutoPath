@@ -3,6 +3,7 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -46,6 +47,96 @@ func readUserPathFromReg() (string, error) {
 		return "", nil // 解析失败，视为空Path
 	}
 	return strings.TrimSpace(matches[2]), nil
+}
+
+func GetPathList() ([]string, error) {
+	if runtime.GOOS != "windows" {
+		return nil, errors.New("仅支持Windows系统")
+	}
+
+	// 从注册表读取用户级Path
+	userPath, err := readUserPathFromReg()
+	if err != nil {
+		return nil, fmt.Errorf("从注册表读取Path失败: %w", err)
+	}
+	if userPath == "" {
+		return nil, nil // Path为空，返回空列表
+	}
+
+	// 拆分Path为多个目录（Windows用;分隔）
+	pathDirs := strings.Split(userPath, ";")
+	return pathDirs, nil
+}
+
+func Where(names []string) []string {
+	userPath, err := GetPathList()
+	if err != nil {
+		fmt.Println("获取用户级Path环境变量失败:", err)
+		return nil
+	}
+	if userPath == nil {
+		return nil
+	}
+	resPaths := make(map[string]struct{})
+	for _, path := range userPath {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		// 检查该路径下是否有python.exe/python3.exe
+		for _, exeName := range names {
+			exePath := filepath.Join(path, exeName)
+			if _, err := os.Stat(exePath); err == nil { // 文件存在
+				absPath, _ := filepath.Abs(exePath)
+				resPaths[absPath] = struct{}{}
+			}
+		}
+	}
+	var resList []string
+	for path := range resPaths {
+		resList = append(resList, path)
+	}
+	return resList
+}
+
+func DeleteDirFromUserPath(targetDir string) error {
+	pathDirs, err := GetPathList()
+	if err != nil {
+		return fmt.Errorf("获取Path列表失败: %w", err)
+	}
+
+	var newPathDirs []string
+	targetDirClean := filepath.Clean(strings.ToLower(targetDir))
+	for _, dir := range pathDirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		// 统一目录格式，避免因大小写、路径分隔符差异导致判断失误
+		cleanDir := filepath.Clean(strings.ToLower(dir))
+		// 过滤掉目标目录，保留其他目录
+		if cleanDir != targetDirClean {
+			newPathDirs = append(newPathDirs, dir)
+		}
+	}
+
+	// 4. 拼接新的Path字符串
+	newPath := strings.Join(newPathDirs, ";")
+
+	// 5. 写入注册表（用户级Environment），保持与添加操作一致的注册表类型
+	cmd := exec.Command("reg", "add", "HKCU\\Environment", "/v", "Path", "/t", "REG_EXPAND_SZ", "/d", newPath, "/f")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("写入注册表失败: %w, 输出: %s", err, string(output))
+	}
+
+	// 6. 发送系统消息，让环境变量更新生效
+	err = sendEnvironmentChangeMessage()
+	if err != nil {
+		return fmt.Errorf("发送环境变量更新消息失败: %w", err)
+	}
+
+	return nil
 }
 
 // IsDirInPath 检查指定目录是否已存在于用户Path环境变量中（从注册表读取）
